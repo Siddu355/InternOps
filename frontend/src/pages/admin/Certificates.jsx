@@ -22,7 +22,6 @@ import {
   PageHeader,
   Card,
   Badge,
-  Spinner,
   Btn,
   Input,
   EmptyState,
@@ -30,6 +29,7 @@ import {
 } from '../../components/ui';
 import CustomSelect from '../../components/CustomSelect';
 import useBodyScrollLock from '../../hooks/useBodyScrollLock';
+import { useRouteInitialLoading } from '../../components/loading/RouteInitialLoading';
 
 const CERTIFICATE_TYPES = [
   { value: 'completion', label: 'Completion' },
@@ -61,11 +61,14 @@ export default function Certificates() {
     data: certsData,
     isLoading,
     isError,
-    error,
     refetch,
   } = useCertificates({
     search,
   });
+
+  const certificatesInitialLoading = isLoading && !certsData;
+
+  useRouteInitialLoading(certificatesInitialLoading);
   const certificates = certsData?.data || [];
   const { data: templatesData, isLoading: templatesLoading } = useTemplates();
   const templates = templatesData?.data || [];
@@ -113,7 +116,7 @@ export default function Certificates() {
   };
 
   return (
-    <div className="animate-fade-in-up">
+    <div>
       <ConfirmationModal
         open={!!certToDelete}
         title="Delete Certificate"
@@ -184,8 +187,6 @@ export default function Certificates() {
             </Btn>
           </div>
         </Card>
-      ) : isLoading ? (
-        <Spinner label="Loading certificates..." />
       ) : filteredCertificates.length === 0 ? (
         <EmptyState
           icon="📜"
@@ -370,8 +371,8 @@ function GenerateCertificateModal({
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="w-full max-w-lg max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+    <div className="internops-modal-backdrop fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="internops-modal-panel w-full max-w-lg max-h-[90vh] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
         <div className="shrink-0 p-6 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">

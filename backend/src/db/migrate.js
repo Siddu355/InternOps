@@ -16,6 +16,7 @@ const RETRY_DELAY_MS = 100;
 const MIGRATION_LOCK_ID = 727100;
 
 const MIGRATION_RENAMES = {
+  '055_keyset_pagination_indexes.sql': '056_keyset_pagination_indexes.sql',
   '003_password_reset.sql': '004_password_reset.sql',
   '010_member_details.sql': '005_member_details.sql',
   '011_email_verification.sql': '006_email_verification.sql',
@@ -40,6 +41,15 @@ const MIGRATION_RENAMES = {
     '023_social_tasks_reminder_sent_at.sql',
   '021_add_certificates_tables.sql': '024_add_certificates_tables.sql',
   '026_feature_flags.sql': '027_feature_flags.sql',
+  '034_workbook_import_execution.sql': '040_workbook_import_execution.sql',
+  '035_attendance_lifecycle_dates.sql': '041_attendance_lifecycle_dates.sql',
+  '036_workbook_profile_enrichment.sql': '042_workbook_profile_enrichment.sql',
+  '037_weekly_rating_import.sql': '043_weekly_rating_import.sql',
+  '038_department_senior_tl_unique.sql': '044_department_senior_tl_unique.sql',
+  '029_notices_enhancements.sql': '046_notices_enhancements.sql',
+  '037_add_hr_management_roles.sql': '047_add_hr_management_roles.sql',
+  '046_add_hr_management_roles.sql': '047_add_hr_management_roles.sql',
+  '051_refresh_token_recovery.sql': '052_refresh_token_recovery.sql',
 };
 
 const fsPromises = fs.promises;
@@ -273,5 +283,9 @@ module.exports = { migrate };
 if (require.main === module) {
   migrate()
     .then(() => process.exit(0))
-    .catch(() => process.exit(1));
+    .catch((err) => {
+      console.error('Migration failed:');
+      console.error(err?.stack || err);
+      process.exit(1);
+    });
 }

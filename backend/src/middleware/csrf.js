@@ -27,16 +27,27 @@ function verifySigned(value, signature) {
 function parseCookies(header) {
   const out = {};
   if (!header) return out;
+
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
+
     const k = part.slice(0, eq).trim();
     const v = part.slice(eq + 1).trim();
-    if (k) out[k] = decodeURIComponent(v);
+
+    if (!k) continue;
+
+    try {
+      out[k] = decodeURIComponent(v);
+    } catch (err) {
+      // Ignore malformed cookie values instead of allowing
+      // decodeURIComponent() to throw and cause a 500 response.
+      continue;
+    }
   }
+
   return out;
 }
-
 function newSessionId() {
   return crypto.randomBytes(24).toString('hex');
 }
@@ -143,8 +154,9 @@ function writeSession(reply, sessionId, userId = null) {
   const signed = `${payload}.${sign(payload)}`;
   reply.setCookie(SESSION_COOKIE, signed, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: config.cookie.secure,
+    sameSite: config.cookie.sameSite,
+    domain: config.cookie.domain,
     path: '/',
     maxAge: ONE_DAY_IN_SECONDS, // 24 hours
   });
@@ -163,8 +175,9 @@ function rotateAndSetCsrf(request, reply, userId = null) {
 
   reply.setCookie(TOKEN_COOKIE, csrfToken, {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    secure: config.cookie.secure,
+    sameSite: config.cookie.sameSite,
+    domain: config.cookie.domain,
     path: '/',
     maxAge: ONE_DAY_IN_SECONDS, // 24 hours
   });
@@ -216,8 +229,9 @@ function generateToken(request, reply) {
   const token = getOrCreateToken(request, reply);
   reply.setCookie('csrf-token', token, {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    secure: config.cookie.secure,
+    sameSite: config.cookie.sameSite,
+    domain: config.cookie.domain,
     path: '/',
     maxAge: ONE_DAY_IN_SECONDS,
   });
@@ -231,6 +245,8 @@ const EXEMPT = [
   '/api/v1/auth/logout',
   '/api/v1/auth/forgot-password',
   '/api/v1/auth/reset-password',
+  '/api/v1/github/webhook',
+  '/api/v1/client-error',
   '/docs',
   '/docs/json',
 ];

@@ -20,7 +20,7 @@ RATE_LIMIT_PER_MINUTE = int(
 # ==============================================================================
 # Centralized Configuration Constraints
 # ==============================================================================
-SUPPORTED_PROVIDERS = {"gemini", "groq", "openai", "anthropic", "deepseek", "huggingface"}
+SUPPORTED_PROVIDERS = {"gemini", "groq", "openai", "anthropic", "deepseek", "huggingface", "nvidia"}
 
 DEFAULT_MODELS = {
     "gemini": "gemini-2.0-flash",
@@ -28,7 +28,8 @@ DEFAULT_MODELS = {
     "openai": "gpt-4o-mini",
     "anthropic": "claude-3-5-sonnet-latest",
     "deepseek": "deepseek-chat",
-    "huggingface": "meta-llama/Llama-3-8b-instruct"
+    "huggingface": "meta-llama/Llama-3-8b-instruct",
+    "nvidia": "meta/llama-3.1-8b-instruct"
 }
 
 PLACEHOLDER_KEYS = {
@@ -37,7 +38,8 @@ PLACEHOLDER_KEYS = {
     "your_openai_api_key",
     "your_anthropic_api_key",
     "your_deepseek_api_key",
-    "your_huggingface_token"
+    "your_huggingface_token",
+    "your_nvidia_api_key"
 }
 
 def _is_valid_key(key: Optional[str]) -> bool:
@@ -56,7 +58,6 @@ def _get_key_attr(provider_name: str) -> str:
     if provider_clean == "huggingface":
         return "HUGGINGFACE_TOKEN"
     return f"{provider_clean.upper()}_API_KEY"
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -80,6 +81,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     DEEPSEEK_API_KEY: Optional[str] = None
     HUGGINGFACE_TOKEN: Optional[str] = None
+    NVIDIA_API_KEY: Optional[str] = None
 
     # Model Configuration
     GEMINI_MODEL: Optional[str] = None
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: Optional[str] = None
     DEEPSEEK_MODEL: Optional[str] = None
     HUGGINGFACE_MODEL: Optional[str] = None
+    NVIDIA_MODEL: Optional[str] = None
 
     # Auth
     JWT_SECRET: str = ""
@@ -98,10 +101,20 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None
     REDIS_URL: Optional[str] = None
     AI_CACHE_TTL: int = 3600
+    # Hard cap on entries kept in the local in-memory fallback cache. Without
+    # Redis configured, every distinct AI request would otherwise accumulate
+    # in this process-local dict for the full TTL, growing without bound
+    # under concurrent load and risking OOM (see issue #2060).
+    AI_MEMORY_CACHE_MAX_SIZE: int = 500
 
     # Circuit Breaker Configuration
     AI_PROVIDER_FAILURE_LIMIT: int = 3
     AI_PROVIDER_COOLDOWN_MS: float = 300000.0
+
+    CORS_ORIGINS: Any = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
 
     @field_validator("AI_PROVIDER_FAILURE_LIMIT", mode="before")
     @classmethod
@@ -184,6 +197,18 @@ class Settings(BaseSettings):
                 "Set it to the same value as the Node backend's JWT_SECRET."
             )
         return v
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            return [
+                origin.strip()
+                for origin in value.split(",")
+                if origin.strip()
+            ]
+
+        return value
 
     @model_validator(mode="after")
     def validate_and_resolve(self) -> "Settings":
@@ -292,6 +317,7 @@ OPENAI_API_KEY = settings.OPENAI_API_KEY
 ANTHROPIC_API_KEY = settings.ANTHROPIC_API_KEY
 DEEPSEEK_API_KEY = settings.DEEPSEEK_API_KEY
 HUGGINGFACE_TOKEN = settings.HUGGINGFACE_TOKEN
+NVIDIA_API_KEY = settings.NVIDIA_API_KEY
 
 GEMINI_MODEL = settings.GEMINI_MODEL
 GROQ_MODEL = settings.GROQ_MODEL
@@ -299,6 +325,7 @@ OPENAI_MODEL = settings.OPENAI_MODEL
 ANTHROPIC_MODEL = settings.ANTHROPIC_MODEL
 DEEPSEEK_MODEL = settings.DEEPSEEK_MODEL
 HUGGINGFACE_MODEL = settings.HUGGINGFACE_MODEL
+NVIDIA_MODEL = settings.NVIDIA_MODEL
 
 JWT_SECRET = settings.JWT_SECRET
 

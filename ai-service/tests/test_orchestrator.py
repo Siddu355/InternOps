@@ -6,14 +6,17 @@ from typing import Dict, Any
 from app.providers.base import BaseAIProvider, AIProviderError, ProviderAPIError, ProviderRateLimitError, ProviderTimeoutError
 from app.providers.orchestrator import AIOrchestrator, get_circuit_breaker, _circuit_breakers
 from app.core.config import settings
+from app.core.cache import clear_cache
 
 # Ensure ai-service root is in sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 @pytest.fixture(autouse=True)
 def reset_circuit_breakers():
+    clear_cache()
     _circuit_breakers.clear()
     yield
+    clear_cache()
     _circuit_breakers.clear()
 
 class MockProvider(BaseAIProvider):
@@ -28,7 +31,7 @@ class MockProvider(BaseAIProvider):
     def provider_name(self) -> str:
         return self._name
 
-    async def generate_text(self, prompt: str, temperature: float = 0.7, **kwargs) -> str:
+    async def generate_chat(self, messages: list[dict], temperature: float = 0.7, **kwargs) -> str:
         self.calls += 1
         if self.fail_with:
             raise self.fail_with
@@ -52,7 +55,7 @@ async def test_orchestrator_success_primary(monkeypatch):
     monkeypatch.setattr("app.providers.orchestrator.get_provider", lambda name: providers[name])
 
     orchestrator = AIOrchestrator()
-    content, provider_name = await orchestrator.generate_text_with_fallback("test prompt")
+    content, provider_name = await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test prompt"}])
 
     assert content == "Response from gemini"
     assert provider_name == "gemini"
@@ -76,7 +79,7 @@ async def test_orchestrator_failover_to_fallback(monkeypatch):
     monkeypatch.setattr("app.providers.orchestrator.get_provider", lambda name: providers[name])
 
     orchestrator = AIOrchestrator()
-    content, provider_name = await orchestrator.generate_text_with_fallback("test prompt")
+    content, provider_name = await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test prompt"}])
 
     assert content == "Response from openai"
     assert provider_name == "openai"
@@ -108,7 +111,8 @@ async def test_orchestrator_circuit_breaker_trips_and_bypasses(monkeypatch):
 
     # Trigger 3 failures to trip the circuit breaker (FAILURE_LIMIT = 3)
     for i in range(3):
-        content, provider_name = await orchestrator.generate_text_with_fallback("test")
+        clear_cache()
+        content, provider_name = await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
         assert provider_name == "openai"
         assert providers["gemini"].calls == i + 1
 
@@ -117,7 +121,8 @@ async def test_orchestrator_circuit_breaker_trips_and_bypasses(monkeypatch):
     assert cb_gemini.failures == 3
 
     # 4th call should bypass gemini entirely
-    content, provider_name = await orchestrator.generate_text_with_fallback("test")
+    clear_cache()
+    content, provider_name = await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
     assert provider_name == "openai"
     assert providers["gemini"].calls == 3  # Gemini calls did not increase
     assert providers["openai"].calls == 4
@@ -139,7 +144,8 @@ async def test_orchestrator_circuit_breaker_half_open_recovery(monkeypatch):
     cb_gemini = get_circuit_breaker("gemini")
 
     for _ in range(3):
-        await orchestrator.generate_text_with_fallback("test")
+        clear_cache()
+        await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
 
     assert await cb_gemini.is_open()
 
@@ -154,7 +160,8 @@ async def test_orchestrator_circuit_breaker_half_open_recovery(monkeypatch):
     assert not await cb_gemini.is_open()
 
     # Next call should attempt primary again, succeed, and reset failure counts
-    content, provider_name = await orchestrator.generate_text_with_fallback("test")
+    clear_cache()
+    content, provider_name = await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
     assert provider_name == "gemini"
     assert content == "Response from gemini"
     assert cb_gemini.failures == 0
@@ -174,7 +181,7 @@ async def test_orchestrator_all_providers_failed(monkeypatch):
     orchestrator = AIOrchestrator()
 
     with pytest.raises(AIProviderError, match="All AI providers failed"):
-        await orchestrator.generate_text_with_fallback("test")
+        await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
 
     assert providers["gemini"].calls == 1
     assert providers["openai"].calls == 1
@@ -196,7 +203,7 @@ async def test_orchestrator_unrecoverable_error_bypasses_failover(monkeypatch):
     orchestrator = AIOrchestrator()
 
     with pytest.raises(ProviderAPIError) as exc_info:
-        await orchestrator.generate_text_with_fallback("test")
+        await orchestrator.generate_chat_with_fallback([{"role": "user", "content": "test"}])
 
     assert exc_info.value.status_code == 413
     assert providers["gemini"].calls == 1
