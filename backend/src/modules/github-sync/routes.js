@@ -46,7 +46,7 @@ module.exports = async function githubSyncRoutes(fastify) {
         });
       }
 
-      const rawBody = req.body;
+      const rawBody = req.rawBody;
       if (!rawBody) {
         return reply.status(400).send({
           received: false,
@@ -54,8 +54,8 @@ module.exports = async function githubSyncRoutes(fastify) {
         });
       }
 
-      let payload;
-      if (typeof rawBody === 'string') {
+      let payload = req.body;
+      if (!payload && typeof rawBody === 'string') {
         try {
           payload = JSON.parse(rawBody);
         } catch {
@@ -64,8 +64,6 @@ module.exports = async function githubSyncRoutes(fastify) {
             error: 'Invalid JSON payload',
           });
         }
-      } else {
-        payload = rawBody;
       }
 
       const isValid = service.verifyWebhookSignature(rawBody, signature);
@@ -674,21 +672,8 @@ module.exports = async function githubSyncRoutes(fastify) {
       preHandler: [auth, rbac('ADMIN')],
     },
     async (req) => {
-      const pool = require('../../config/db');
-      const [githubTasks, totalTasks, byRepo, byPlatform] = await Promise.all([
-        pool.query(
-          `SELECT COUNT(*)::int AS count FROM social_tasks WHERE source = 'github' AND deleted_at IS NULL`
-        ),
-        pool.query(
-          `SELECT COUNT(*)::int AS count FROM social_tasks WHERE deleted_at IS NULL`
-        ),
-        pool.query(
-          `SELECT github_repo, COUNT(*)::int AS count FROM social_tasks WHERE source = 'github' AND deleted_at IS NULL GROUP BY github_repo ORDER BY count DESC`
-        ),
-        pool.query(
-          `SELECT target_platform, COUNT(*)::int AS count FROM social_tasks WHERE source = 'github' AND deleted_at IS NULL GROUP BY target_platform ORDER BY count DESC`
-        ),
-      ]);
+      const stats = await repo.getSyncCountStats();
+      return stats;
       return {
         totalGithubTasks: githubTasks.rows[0].count,
         totalAllTasks: totalTasks.rows[0].count,
