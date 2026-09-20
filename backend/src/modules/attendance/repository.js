@@ -1,10 +1,52 @@
 const pool = require('../../config/db');
-const { assertActivityAllowed } = require('../team/lifecycle');
+const {
+  assertActivityAllowed,
+  assertActivityAllowedBulk,
+} = require('../team/lifecycle');
 const {
   MAX_HIERARCHY_DEPTH,
   MAX_HIERARCHY_ROWS,
   roleRankSql,
 } = require('../../utils/hierarchy');
+
+async function getAllUsers() {
+  const { rows } = await pool.query(
+    `SELECT id, full_name, email, role, department_id
+     FROM users
+     WHERE deleted_at IS NULL
+     ORDER BY CASE role
+       WHEN 'ADMIN' THEN 0
+       WHEN 'SENIOR_TL' THEN 1
+       WHEN 'TL' THEN 2
+       WHEN 'CAPTAIN' THEN 3
+       WHEN 'INTERN' THEN 4
+       ELSE 5
+     END,
+     LOWER(COALESCE(NULLIF(TRIM(full_name), ''), email)),
+     LOWER(email), id`
+  );
+  return rows;
+}
+
+async function getUsersByDepartment(departmentId) {
+  const { rows } = await pool.query(
+    `SELECT id, full_name, email, role, department_id
+     FROM users
+     WHERE deleted_at IS NULL AND department_id = $1
+     ORDER BY CASE role
+       WHEN 'ADMIN' THEN 0
+       WHEN 'SENIOR_TL' THEN 1
+       WHEN 'TL' THEN 2
+       WHEN 'CAPTAIN' THEN 3
+       WHEN 'INTERN' THEN 4
+       ELSE 5
+     END,
+     LOWER(COALESCE(NULLIF(TRIM(full_name), ''), email)),
+     LOWER(email), id`,
+    [departmentId]
+  );
+  return rows;
+}
 
 function assertWithinHierarchyRowLimit(rows) {
   if (rows.length <= MAX_HIERARCHY_ROWS) return;
@@ -333,24 +375,58 @@ async function getMonthlyStats(userId, month, year) {
 }
 
 async function bulkMark(entries, markedBy, client = pool) {
-  const out = [];
-
-  for (const e of entries) {
-    await assertActivityAllowed(client, e.user_id, e.date);
-
-    const r = await client.query(
-      `INSERT INTO attendance (user_id, marked_by, date, status, remarks)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (user_id, date)
-       DO UPDATE SET status=$4, marked_by=$2, remarks=$5, updated_at=NOW()
-       RETURNING *`,
-      [e.user_id, markedBy, e.date, e.status, e.remarks || null]
-    );
-
-    out.push(r.rows[0]);
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { records: [], skipped: [] };
   }
 
-  return out;
+  const uniqueEntries = Array.from(
+    new Map(
+      entries.map((entry) => [`${entry.user_id}:${entry.date}`, entry])
+    ).values()
+  );
+
+  // One batched query instead of N calls to assertActivityAllowed.
+  const { eligible, skipped } = await assertActivityAllowedBulk(
+    client,
+    uniqueEntries
+  );
+
+  if (eligible.length === 0) {
+    return { records: [], skipped };
+  }
+
+  // One batched UPSERT instead of one INSERT per entry.
+  const values = [];
+  const placeholders = [];
+
+  eligible.forEach((entry, index) => {
+    const base = index * 5;
+    placeholders.push(
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`
+    );
+    values.push(
+      entry.user_id,
+      markedBy,
+      entry.date,
+      entry.status,
+      entry.remarks || null
+    );
+  });
+
+  const result = await client.query(
+    `INSERT INTO attendance (user_id, marked_by, date, status, remarks)
+     VALUES ${placeholders.join(', ')}
+     ON CONFLICT (user_id, date)
+     DO UPDATE SET
+       status = EXCLUDED.status,
+       marked_by = EXCLUDED.marked_by,
+       remarks = EXCLUDED.remarks,
+       updated_at = NOW()
+     RETURNING *`,
+    values
+  );
+
+  return { records: result.rows, skipped };
 }
 
 // Returns the set of target ids that fall inside managerId's transitive
@@ -595,6 +671,8 @@ async function markAnomalyViewed(anomalyId, managerId, isAdmin) {
 }
 
 module.exports = {
+  getAllUsers,
+  getUsersByDepartment,
   markAttendance,
   getAttendance,
   getDepartmentAttendanceSheet,

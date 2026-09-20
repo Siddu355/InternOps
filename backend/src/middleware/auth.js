@@ -1,8 +1,4 @@
 const { verifyAccessToken } = require('../utils/tokens');
-const {
-  isAccessTokenBlacklisted,
-  blacklistAccessToken,
-} = require('../config/redis');
 const authRepository = require('../modules/auth/repository');
 const PASSWORD_CHANGE_ALLOWED_ROUTES = new Set([
   'GET /api/v1/users/me',
@@ -25,7 +21,7 @@ async function authMiddleware(request, reply) {
   try {
     const decoded = verifyAccessToken(auth.split(' ')[1]);
 
-    if (await isAccessTokenBlacklisted(decoded.jti)) {
+    if (await authRepository.isAccessTokenRevoked(decoded.jti)) {
       return reply.status(401).send({
         error: 'Token revoked',
       });

@@ -24,6 +24,40 @@ describe('Storage Service Unit Tests', () => {
       expect(Buffer.isBuffer(compressed)).toBe(true);
       expect(compressed.length).toBeGreaterThan(0);
     });
+
+    it('rejects corrupted image data without returning the original buffer', async () => {
+      const corruptedPng = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('not-a-decodable-image'),
+      ]);
+
+      try {
+        await storageService.compressAvatar(corruptedPng);
+        throw new Error('Expected corrupted avatar processing to fail');
+      } catch (error) {
+        expect([
+          'INVALID_AVATAR_IMAGE',
+          'AVATAR_PROCESSOR_UNAVAILABLE',
+        ]).toContain(error.code);
+
+        if (error.code === 'INVALID_AVATAR_IMAGE') {
+          expect(error.statusCode).toBe(400);
+          expect(error.message).toBe('Invalid or corrupted avatar image');
+        }
+      }
+    });
+
+    it('fails closed when avatar processing is unavailable', async () => {
+      const nonImageBuffer = Buffer.from('arbitrary non-image content');
+
+      await expect(
+        storageService.processAndUploadAvatar(nonImageBuffer, 'issue_2007')
+      ).rejects.toMatchObject({
+        code: expect.stringMatching(
+          /^(INVALID_AVATAR_IMAGE|AVATAR_PROCESSOR_UNAVAILABLE)$/
+        ),
+      });
+    });
   });
 
   describe('uploadBuffer()', () => {

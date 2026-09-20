@@ -90,9 +90,17 @@ export default function BulkAttendanceForm({
       ctx?.att?.forEach(([k, d]) => queryClient.setQueryData(k, d));
       setError(getApiErrorMessage(err, 'Bulk mark failed'));
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
       setError('');
-      setMsg(`✓ Marked ${variables.entries.length} members`);
+
+      const skippedCount = data?.data?.skipped?.length ?? 0;
+      const markedCount = data?.data?.count ?? variables.entries.length;
+
+      if (skippedCount > 0) {
+        setMsg(`✓ Marked ${markedCount} members — ${skippedCount} skipped`);
+      } else {
+        setMsg(`✓ Marked ${markedCount} members`);
+      }
       setSelectedUsers([]);
       setRemarks('');
       setFillMissing(false);

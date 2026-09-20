@@ -67,6 +67,24 @@ def clear_cache() -> None:
     _memory_cache.clear()
 
 
+async def delete_cached(key: str) -> None:
+    """
+    Remove a single key from the in-memory cache and Redis (if configured).
+
+    Used when a write path needs to invalidate one cached entry immediately
+    instead of waiting for its TTL to expire (e.g. a policy update, see
+    issue #2062, which must be reflected without a restart).
+    """
+    _memory_cache.pop(key, None)
+
+    redis = get_redis()
+    if redis is not None:
+        try:
+            await redis.delete(key)
+        except Exception:
+            pass
+
+
 def _cleanup_expired() -> None:
     """Remove expired items from in-memory cache."""
     now = time.time()

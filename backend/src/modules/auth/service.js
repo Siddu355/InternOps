@@ -20,7 +20,6 @@ const {
 } = require('../../middleware/bruteForce');
 const { isValidStep } = require('../../utils/hierarchy');
 const { sendVerificationEmail } = require('./verificationService');
-const { blacklistAccessToken } = require('../../config/redis');
 const { notifyAdmin } = require('../notifications/repository');
 
 const REFRESH_RECOVERY_SECONDS = 20 * 60;
@@ -290,10 +289,9 @@ async function logout(
 
   await repo.revokeRefreshTokenRedis(hashToken(token));
 
-  const ttl = accessExp - Math.floor(Date.now() / 1000);
-
-  if (ttl > 0) {
-    await blacklistAccessToken(accessJti, ttl);
+  const expiresAt = new Date(accessExp * 1000);
+  if (expiresAt.getTime() > Date.now()) {
+    await repo.revokeAccessToken(accessJti, authenticatedUserId, expiresAt);
   }
 
   await createAuditLog({

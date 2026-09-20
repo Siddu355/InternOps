@@ -37,6 +37,7 @@ let otherDepartmentId;
 let adminToken;
 let seniorToken;
 let tlToken;
+let captainToken;
 
 describe('Department Hierarchy API Filtering (#1347)', () => {
   beforeAll(async () => {
@@ -100,8 +101,21 @@ describe('Department Hierarchy API Filtering (#1347)', () => {
     );
 
     adminToken = generateAccessToken({ id: ids.admin, role: 'ADMIN' });
-    seniorToken = generateAccessToken({ id: ids.senior, role: 'SENIOR_TL' });
-    tlToken = generateAccessToken({ id: ids.tl, role: 'TL' });
+    seniorToken = generateAccessToken({
+      id: ids.senior,
+      role: 'SENIOR_TL',
+      department_id: departmentId,
+    });
+    tlToken = generateAccessToken({
+      id: ids.tl,
+      role: 'TL',
+      department_id: departmentId,
+    });
+    captainToken = generateAccessToken({
+      id: ids.captain,
+      role: 'CAPTAIN',
+      department_id: departmentId,
+    });
   });
 
   afterAll(async () => {
@@ -172,6 +186,50 @@ describe('Department Hierarchy API Filtering (#1347)', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  describe('Attendance department-sheet authorization (#2122)', () => {
+    const sheetRange = '?from=2026-09-01&to=2026-09-30';
+
+    test('Senior TL can request the attendance sheet for their own department', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/attendance/department/${departmentId}/sheet${sheetRange}`,
+        headers: { Authorization: `Bearer ${seniorToken}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+    });
+
+    test.each([
+      ['Senior TL', () => seniorToken],
+      ['TL', () => tlToken],
+      ['Captain', () => captainToken],
+    ])(
+      '%s is denied access to another department attendance sheet',
+      async (_role, getToken) => {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/v1/attendance/department/${otherDepartmentId}/sheet${sheetRange}`,
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const body = JSON.parse(res.body);
+
+        expect(res.statusCode).toBe(403);
+        expect(body.error).toMatch(/outside.*authorized scope/i);
+        expect(body.members).toBeUndefined();
+        expect(body.records).toBeUndefined();
+      }
+    );
+
+    test('Admin can request another department attendance sheet', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/v1/attendance/department/${otherDepartmentId}/sheet${sheetRange}`,
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+
+      expect(res.statusCode).toBe(200);
+    });
+  });
   test('GET /attendance/authorized-members requires authentication', async () => {
     const res = await app.inject({
       method: 'GET',

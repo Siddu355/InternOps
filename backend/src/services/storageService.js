@@ -57,30 +57,30 @@ function getS3Client() {
  */
 async function compressAvatar(buffer) {
   if (!sharp) {
-    logger.warn(
-      '[storageService] sharp not loaded; storing uncompressed image buffer'
-    );
-    return buffer;
+    const error = new Error('Avatar image processing is unavailable');
+    error.code = 'AVATAR_PROCESSOR_UNAVAILABLE';
+    error.statusCode = 503;
+    throw error;
   }
 
   try {
-    return await sharp(buffer)
-      .rotate() // Auto-rotate based on EXIF orientation metadata
+    return await sharp(buffer, { failOn: 'error' })
+      .rotate()
       .resize(300, 300, {
         fit: 'cover',
         position: 'center',
       })
       .webp({ quality: 80 })
       .toBuffer();
-  } catch (err) {
-    logger.warn(
-      { err: err.message },
-      '[storageService] Avatar compression failed; storing original buffer'
-    );
-    return buffer;
+  } catch (cause) {
+    const error = new Error('Invalid or corrupted avatar image', {
+      cause,
+    });
+    error.code = 'INVALID_AVATAR_IMAGE';
+    error.statusCode = 400;
+    throw error;
   }
 }
-
 /**
  * Compresses a general image buffer: auto-orients, resizes to a max width,
  * and converts to WebP format.
